@@ -1,0 +1,180 @@
+import random
+import pygame
+import time
+
+class SnakeEnv:
+    def __init__(self, grid_size=20):
+        pygame.init()  # Initialize pygame here
+
+        self.grid_size = grid_size
+        self.FPS = 60
+        self.TILE_SIZE = 40
+        self.WINDOW_SIZE = self.grid_size * self.TILE_SIZE
+        self.last_food_time = time.time()  # Track time since last food
+
+
+        # Colors
+        self.BLACK = (0, 0, 0)
+        self.GREEN = (0, 200, 0)
+        self.RED = (200, 0, 0)
+        self.WHITE = (255, 255, 255)
+        self.current_reward=0
+
+        # Create pygame window and clock
+        self.screen = pygame.display.set_mode((self.WINDOW_SIZE, self.WINDOW_SIZE))
+        self.clock = pygame.time.Clock()
+        self.font = pygame.font.SysFont(None, 36)
+
+        self.show_info = True
+
+
+        self.reset()
+
+    def reset(self):
+        self.snake = [(5, 5), (4, 5), (3, 5)]
+        self.direction = (1, 0)  # RIGHT
+        self.food = self.place_food()
+        self.done = False
+        self.score = 0
+        self.last_food_time = time.time()
+
+        return self.get_state()
+
+    def place_food(self):
+        while True:
+            food = (random.randint(0, self.grid_size - 1), random.randint(0, self.grid_size - 1))
+            if food not in self.snake:
+                return food
+
+    def step(self, action):
+        if self.done:
+            return self.get_state(), 0, True, {}
+
+        directions = [(0, -1), (0, 1), (-1, 0), (1, 0)]  # UP, DOWN, LEFT, RIGHT
+        new_dir = directions[action]
+
+        if (new_dir[0] == -self.direction[0] and new_dir[1] == -self.direction[1]):
+            new_dir = self.direction
+        else:
+            self.direction = new_dir
+
+        head = (self.snake[0][0] + self.direction[0], self.snake[0][1] + self.direction[1])
+
+        if (head in self.snake):
+            self.done = True
+            reward = -10
+            return self.get_state(), reward, self.done, {}
+
+        if not (0 <= head[0] < self.grid_size and 0 <= head[1] < self.grid_size):
+            self.done = True
+            reward = -1
+            return self.get_state(), reward, self.done, {}
+
+        self.snake.insert(0, head)
+
+        if head == self.food:
+            reward = 1
+            self.score += 1
+            self.food = self.place_food()
+            self.last_food_time = time.time()
+        else:
+            self.snake.pop()
+            reward = -0.01
+
+        self.current_reward = reward
+
+        return self.get_state(), reward, self.done, {}
+
+    def get_state(self):
+        head_x, head_y = self.snake[0]
+
+        # Directions as vectors for easy use
+        dir_left = (-self.direction[1], self.direction[0])  # 90 deg left rotation
+        dir_right = (self.direction[1], -self.direction[0])  # 90 deg right rotation
+
+        # Positions to check
+        pos_straight = (head_x + self.direction[0], head_y + self.direction[1])
+        pos_left = (head_x + dir_left[0], head_y + dir_left[1])
+        pos_right = (head_x + dir_right[0], head_y + dir_right[1])
+
+        def is_collision_wall(pos):
+            x, y = pos
+            return x < 0 or x >= self.grid_size or y < 0 or y >= self.grid_size
+
+        def is_collision_body(pos):
+            return pos in self.snake  # assuming snake_body is a list of positions
+
+        danger_straight_wall = 1 if is_collision_wall(pos_straight) else 0
+        danger_left_wall = 1 if is_collision_wall(pos_left) else 0
+        danger_right_wall = 1 if is_collision_wall(pos_right) else 0
+
+        danger_straight_body = 1 if is_collision_body(pos_straight) else 0
+        danger_left_body = 1 if is_collision_body(pos_left) else 0
+        danger_right_body = 1 if is_collision_body(pos_right) else 0
+
+        # Movement directions
+        moving_up = 1 if self.direction == (0, -1) else 0
+        moving_down = 1 if self.direction == (0, 1) else 0
+        moving_left = 1 if self.direction == (-1, 0) else 0
+        moving_right = 1 if self.direction == (1, 0) else 0
+
+        food_left = 1 if self.food[0] < head_x else 0
+        food_right = 1 if self.food[0] > head_x else 0
+        food_up = 1 if self.food[1] < head_y else 0
+        food_down = 1 if self.food[1] > head_y else 0
+
+        state = [
+            danger_straight_wall,
+            danger_right_wall,
+            danger_left_wall,
+            danger_straight_body,
+            danger_right_body,
+            danger_left_body,
+            moving_up,
+            moving_down,
+            moving_left,
+            moving_right,
+            food_left,
+            food_right,
+            food_up,
+            food_down,
+        ]
+
+        return state
+
+    def draw_rect(self, color, pos):
+        pygame.draw.rect(
+            self.screen,
+            color,
+            pygame.Rect(
+                pos[0] * self.TILE_SIZE,
+                pos[1] * self.TILE_SIZE,
+                self.TILE_SIZE,
+                self.TILE_SIZE,
+            ),
+        )
+
+    def render(self, death_count=None):
+        self.screen.fill(self.BLACK)
+
+        for part in self.snake:
+            self.draw_rect(self.GREEN, part)
+        self.draw_rect(self.RED, self.food)
+
+        if self.show_info:
+            score_text = self.font.render(f"Score: {self.score}", True, self.WHITE)
+            reward_text = self.font.render(f"Reward: {self.current_reward:.2f}", True, self.WHITE)
+            self.screen.blit(score_text, (10, 10))
+            self.screen.blit(reward_text, (10, 40))
+
+        if death_count is not None:
+            death_text = self.font.render(f"Deaths: {death_count}", True, self.WHITE)
+            self.screen.blit(death_text, (10, 70))  # Position it below score and reward
+
+        if self.done:
+            text = self.font.render("Game Over", True, self.RED)
+            self.screen.blit(text, (self.WINDOW_SIZE // 2 - 80, self.WINDOW_SIZE // 2 - 20))
+
+        pygame.display.flip()
+        self.clock.tick(self.FPS)
+
